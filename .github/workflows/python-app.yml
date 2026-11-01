@@ -1,0 +1,144 @@
+import os
+import requests
+from PIL import Image, ImageDraw, ImageFont
+from datetime import datetime
+
+BOT_TOKEN = os.environ["BOT_TOKEN"]
+API_KEY = os.environ["API_FOOTBALL_KEY"]
+CHANNEL = "@laligaonline"
+
+def font(size, bold=False):
+    path = (
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+        if bold else
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+    )
+    return ImageFont.truetype(path, size)
+
+def get_standings():
+    url = "https://v3.football.api-sports.io/standings"
+    headers = {"x-apisports-key": API_KEY}
+    params = {"league": 140, "season": 2026}
+
+    r = requests.get(url, headers=headers, params=params, timeout=30)
+    r.raise_for_status()
+    data = r.json()
+
+    if not data.get("response"):
+        raise RuntimeError("Turnir jadvali topilmadi: " + str(data))
+
+    return data["response"][0]["league"]["standings"][0]
+
+def make_poster(teams):
+    width, height = 1080, 150 + len(teams) * 76 + 150
+    img = Image.new("RGB", (width, height), "#101522")
+    draw = ImageDraw.Draw(img)
+
+    draw.text((55, 35), "LALIGA", font=font(58, True), fill="#F44355")
+    draw.text((55, 105), "2026/27  •  TURNIR JADVALI",
+              font=font(27, True), fill="white")
+
+    y = 190
+    draw.rounded_rectangle((35, y, 1045, y + 55),
+                           radius=12, fill="#293246")
+    draw.text((55, y + 12), "JAMOA", font=font(22, True), fill="white")
+    draw.text((590, y + 12), "O", font=font(20, True), fill="white")
+    draw.text((680, y + 12), "G", font=font(20, True), fill="white")
+    draw.text((770, y + 12), "D", font=font(20, True), fill="white")
+    draw.text((860, y + 12), "M", font=font(20, True), fill="white")
+    draw.text((960, y + 12), "B", font=font(20, True), fill="#FFD45C")
+
+    y += 65
+
+    for i, team in enumerate(teams):
+        row = team["team"]
+        stats = team["all"]
+        bg = "#202B40" if i % 2 == 0 else "#172033"
+
+        draw.rounded_rectangle((35, y, 1045, y + 65),
+                               radius=9, fill=bg)
+
+        values = [
+            str(i + 1),
+            row["name"][:24],
+            str(stats["played"]),
+            str(stats["win"]),
+            str(stats["draw"]),
+            str(stats["lose"]),
+            str(team["points"])
+        ]
+
+        draw.text((55, y + 17), values[0], font=font(22, True),
+                  fill="#FFD45C")
+        draw.text((100, y + 17), values[1], font=font(19, True),
+                  fill="white")
+        for x, value in zip([590, 680, 770, 860, 960], values[2:]):
+            draw.text((x, y + 17), value, font=font(21, True),
+                      fill="white")
+
+        y += 73
+
+    draw.text((55, height - 90), "@laligaonline",
+              font=font(30, True), fill="#42A5F5")
+    draw.text((55, height - 45),
+              "Manba: API-Football",
+              font=font(17), fill="#AAB4C5")
+
+    img.save("laliga_standings.png")
+
+def send_poster():
+    with open("laliga_standings.png", "rb") as photo:
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
+        response = requests.post(
+            url,
+            data={"chat_id": CHANNEL, "caption": "⚽ La Liga turnir jadvali"},
+            files={"photo": photo},
+            timeout=60
+        )
+    response.raise_for_status()
+    if not response.json().get("ok"):
+        raise RuntimeError(response.text)
+
+if __name__ == "__main__":
+    teams = get_standings()
+    make_poster(teams)
+    send_poster()
+    print("Poster kanalga yuborildi!")# This workflow will install Python dependencies, run tests and lint with a single version of Python
+# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-python
+
+name: Python application
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Python 3.10
+      uses: actions/setup-python@v3
+      with:
+        python-version: "3.10"
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install flake8 pytest
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+    - name: Lint with flake8
+      run: |
+        # stop the build if there are Python syntax errors or undefined names
+        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+        # exit-zero treats all errors as warnings. The GitHub editor is 127 chars wide
+        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+    - name: Test with pytest
+      run: |
+        pytest
